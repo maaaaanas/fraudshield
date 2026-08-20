@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS alerts (
+  id BIGSERIAL PRIMARY KEY,
+  ts TIMESTAMPTZ NOT NULL,
+  prob DOUBLE PRECISION NOT NULL,
+  amount DOUBLE PRECISION,
+  features JSONB,
+  shap JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts (ts DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_prob ON alerts (prob DESC);

@@ -1,0 +1,11 @@
+# Sample Fraud Alerts
+# This file is generated in real-time by the fraud detection system
+# Contains detected fraud cases above threshold
+# Format: alert_id,transaction_id,fraud_probability,amount,features,timestamp
+
+# Example:
+# alert_001,txn_089,0.627,1250.00,"high_amount:yes,unusual_time:yes",2025-08-22T19:15:45
+# alert_002,txn_156,0.534,89.99,"velocity_check:failed,location:suspicious",2025-08-22T19:16:12
+# alert_003,txn_234,0.789,450.00,"merchant_risk:high,card_age:new",2025-08-22T19:16:35
+
+# Note: Actual file is generated during system runtime

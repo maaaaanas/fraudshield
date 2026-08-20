@@ -1,0 +1,115 @@
+version: "3.9"
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    ports: ["2181:2181"]
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    depends_on: [zookeeper]
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports: ["9092:9092"]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: fraud
+      POSTGRES_PASSWORD: fraudpw
+      POSTGRES_DB: frauddb
+    volumes:
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    ports: ["5432:5432"]
+    restart: unless-stopped
+
+  api:
+    build: ./services/api
+    environment:
+      KAFKA_BROKER: kafka:9092
+      TOPIC_TRANSACTIONS: transactions
+      DB_URL: postgresql+psycopg2://fraud:fraudpw@postgres:5432/frauddb
+      THRESHOLD_FILE: /app/data/threshold.json
+      ALERTS_SINK: /app/data/alerts.csv
+      LATEST_SINK: /app/data/latest.csv
+      DRIFT_SINK: /app/data/drift.json
+      META_FILE: /app/data/model_meta.json
+    volumes:
+      - ./data:/app/data
+      - ./services/api:/app
+    ports: ["8000:8000"]
+    depends_on: [kafka, postgres]
+    restart: unless-stopped
+
+  producer:
+    build: ./services/producer
+    environment:
+      KAFKA_BROKER: kafka:9092
+      TOPIC_TRANSACTIONS: transactions
+      PRODUCER_RATE_MS: 1000
+      DATA_FILE: /app/data/transactions.csv
+      REPEAT: "true"
+    volumes:
+      - ./data:/app/data
+      - ./services/producer:/app
+    depends_on: [kafka]
+    restart: unless-stopped
+
+  webhook:
+    build: ./services/producer
+    command: uvicorn webhook_api:app --host 0.0.0.0 --port 8001
+    environment:
+      KAFKA_BROKER: kafka:9092
+      TOPIC_TRANSACTIONS: transactions
+    ports: ["8001:8001"]
+    volumes:
+      - ./services/producer:/app
+    depends_on: [kafka]
+    restart: unless-stopped
+
+  stream_processor:
+    build: ./services/stream_processor
+    environment:
+      KAFKA_BROKER: kafka:9092
+      TOPIC_TRANSACTIONS: transactions
+      ALERTS_SINK: /app/data/alerts.csv
+      LATEST_SINK: /app/data/latest.csv
+      DRIFT_SINK: /app/data/drift.json
+      THRESHOLD_FILE: /app/data/threshold.json
+      SLACK_WEBHOOK_URL:
+      DB_URL: postgresql+psycopg2://fraud:fraudpw@postgres:5432/frauddb
+      MODEL_PATH: /app/model.pkl
+      MODEL_OUT: /app/model.pkl
+    volumes:
+      - ./data:/app/data
+      - ./services/stream_processor:/app
+    depends_on: [kafka, postgres]
+    restart: unless-stopped
+
+  ui:
+    build: ./services/ui
+    environment:
+      VITE_API_BASE: http://localhost:8000
+    volumes:
+      - ./services/ui:/app
+      - /app/node_modules
+      - ./data:/data:ro
+    ports: ["5173:5173"]
+    depends_on: [api]
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:4
+    ports: ["8080:8080"]
+    depends_on: [postgres]
+    restart: unless-stopped
+
+volumes:
+  pgdata:

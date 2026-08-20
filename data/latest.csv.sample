@@ -1,0 +1,11 @@
+# Sample Latest Transactions
+# This file is generated in real-time by the fraud detection system
+# Contains processed transactions with fraud probabilities
+# Format: transaction_id,amount,fraud_probability,timestamp
+
+# Example:
+# txn_001,125.50,0.108,2025-08-22T19:15:30
+# txn_002,89.25,0.425,2025-08-22T19:15:31
+# txn_003,234.75,0.112,2025-08-22T19:15:32
+
+# Note: Actual file is generated during system runtime

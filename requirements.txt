@@ -1,0 +1,17 @@
+kafka-python
+pandas
+numpy
+scikit-learn
+xgboost
+lightgbm
+imbalanced-learn
+fastapi
+uvicorn
+python-dotenv
+requests
+joblib
+shap
+sse-starlette
+psycopg2-binary
+SQLAlchemy
+pyyaml
