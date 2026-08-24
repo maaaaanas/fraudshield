@@ -62,3 +62,13 @@ yarn-error.log*
 
 # Docker
 .docker/
+
+# Runtime-generated monitoring/configuration
+data/threshold.json
+data/drift.json
+data/model_meta.json
+
+# Local environment secrets
+.env
+.env.*
+!.env.example

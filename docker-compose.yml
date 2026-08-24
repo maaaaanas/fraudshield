@@ -1,4 +1,4 @@
-version: "3.9"
+
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.0
@@ -44,6 +44,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./services/api:/app
+      - ./services/stream_processor/model_meta.json:/app/data/model_meta.json:ro
     ports: ["8000:8000"]
     depends_on: [kafka, postgres]
     restart: unless-stopped
@@ -54,7 +55,9 @@ services:
       KAFKA_BROKER: kafka:9092
       TOPIC_TRANSACTIONS: transactions
       PRODUCER_RATE_MS: 1000
-      DATA_FILE: /app/data/transactions.csv
+      SAMPLE_SIZE: 100
+      FRAUD_RATIO: 0.01
+      DATA_FILE: /app/data/creditcard.csv
       REPEAT: "true"
     volumes:
       - ./data:/app/data

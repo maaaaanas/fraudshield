@@ -63,10 +63,35 @@ def get_counts():
 def alerts(limit: int = 200):
     if engine:
         with engine.connect() as conn:
-            df = pd.read_sql(sa.text("SELECT ts, prob, amount, shap FROM alerts ORDER BY ts DESC LIMIT :lim"), conn, params={"lim":limit})
+            df = pd.read_sql(
+                sa.text(
+                    """
+                    SELECT
+                        ts,
+                        prob,
+                        amount,
+                        transaction_id,
+                        customer_id,
+                        merchant,
+                        location,
+                        device_id,
+                        severity,
+                        features,
+                        shap
+                    FROM alerts
+                    ORDER BY ts DESC
+                    LIMIT :lim
+                    """
+                ),
+                conn,
+                params={"lim": limit}
+            )
     else:
         df = pd.read_csv(ALERTS_SINK).tail(limit)
-    return json.loads(df.to_json(orient="records"))
+
+    return json.loads(
+        df.to_json(orient="records")
+    )
 
 @app.get("/transactions")
 def transactions(limit: int = 200):

@@ -1,73 +1,394 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+
 import KpiCard from "./components/KpiCard.jsx";
 import AlertsTable from "./components/AlertsTable.jsx";
 import TxnChart from "./components/TxnChart.jsx";
+import FraudSummary from "./components/FraudSummary.jsx";
 import ThresholdControl from "./components/ThresholdControl.jsx";
+import ModelDriftPanel from "./components/ModelDriftPanel.jsx";
+
 import { onSSE } from "./lib/sse.js";
 
-const API = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+const API =
+  import.meta.env.VITE_API_BASE ||
+  "http://localhost:8000";
 
-export default function App(){
-  const [latest,setLatest] = useState([]);
-  const [alerts,setAlerts] = useState([]);
-  const [threshold,setThreshold] = useState(0.5);
-  const [counts,setCounts] = useState({total_transactions: 0, total_alerts: 0});
+export default function App() {
+  const [latest, setLatest] = useState([]);
+  const [alerts, setAlerts] = useState([]);
+  const [threshold, setThreshold] = useState(0.5);
 
-  const loadAll = async ()=>{
-    const [l,a,t,c] = await Promise.all([
-      axios.get(`${API}/transactions?limit=200`).then(r=>r.data),
-      axios.get(`${API}/alerts?limit=200`).then(r=>r.data),
-      axios.get(`${API}/threshold`).then(r=>r.data),
-      axios.get(`${API}/counts`).then(r=>r.data)
-    ]);
-    setLatest(l); setAlerts(a); setThreshold(t.threshold ?? 0.5); setCounts(c);
+  const [counts, setCounts] = useState({
+    total_transactions: 0,
+    total_alerts: 0,
+  });
+
+  const [model, setModel] = useState(null);
+  const [drift, setDrift] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  const loadAll = async () => {
+    try {
+      const [
+        latestResponse,
+        alertsResponse,
+        thresholdResponse,
+        countsResponse,
+        modelResponse,
+        driftResponse,
+      ] = await Promise.all([
+        axios.get(`${API}/transactions?limit=200`),
+        axios.get(`${API}/alerts?limit=200`),
+        axios.get(`${API}/threshold`),
+        axios.get(`${API}/counts`),
+        axios.get(`${API}/model`),
+        axios.get(`${API}/drift`),
+      ]);
+
+      setLatest(latestResponse.data);
+      setAlerts(alertsResponse.data);
+
+      setThreshold(
+        thresholdResponse.data.threshold ?? 0.5
+      );
+
+      setCounts(countsResponse.data);
+      setModel(modelResponse.data);
+      setDrift(driftResponse.data);
+      setLastUpdated(new Date());
+    } catch (error) {
+      console.error(
+        "Dashboard refresh failed:",
+        error
+      );
+    }
   };
 
-  useEffect(()=>{
+  useEffect(() => {
     loadAll();
-    const unsub1 = onSSE(`${API}/stream/transactions`, loadAll);
-    const unsub2 = onSSE(`${API}/stream/alerts`, loadAll);
-    return ()=>{ unsub1(); unsub2(); };
-  },[]);
 
-  const totalTx = counts.total_transactions;
-  const totalAlerts = counts.total_alerts;
-  const alertRate = totalTx > 0 ? ((totalAlerts / totalTx) * 100).toFixed(1) : "0.0";
-  const avgProb = alerts.length
-  ? (alerts.reduce((s, a) => s + Number(a.prob), 0) / alerts.length).toFixed(3)
-  : "0.000";
-  
+    const unsubTransactions = onSSE(
+      `${API}/stream/transactions`,
+      loadAll
+    );
+
+    const unsubAlerts = onSSE(
+      `${API}/stream/alerts`,
+      loadAll
+    );
+
+    return () => {
+      unsubTransactions();
+      unsubAlerts();
+    };
+  }, []);
+
+  const totalTx =
+    counts.total_transactions || 0;
+
+  const totalAlerts =
+    counts.total_alerts || 0;
+
+  const alertRate =
+    totalTx > 0
+      ? ((totalAlerts / totalTx) * 100).toFixed(1)
+      : "0.0";
+
+  const criticalAlerts = alerts.filter(
+    (alert) =>
+      String(alert.severity || "").toUpperCase() ===
+      "CRITICAL"
+  ).length;
+
+  const highAlerts = alerts.filter((alert) => {
+  const severity = String(
+    alert.severity || ""
+  ).toUpperCase();
+
+  if (severity) {
+    return severity === "HIGH";
+  }
+
+  const probability = Number(
+    alert.prob || 0
+  );
+
+  return probability >= 0.80 && probability < 0.95;
+});
+
+  const systemOnline = true;
+
   return (
-    <div className="min-h-screen p-6">
-      <header className="mb-6">
-        <h1 className="text-3xl font-bold">💳 Real-Time Fraud Monitoring</h1>
-        <p className="text-slate-400">Kafka → Model → API (SSE) → React Dashboard</p>
+    <div className="min-h-screen bg-slate-950 text-white">
+
+      {/* ======================================================
+          TOP HEADER
+      ====================================================== */}
+
+      <header className="border-b border-slate-800 bg-slate-950/95">
+        <div className="max-w-[1600px] mx-auto px-6 py-5">
+
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+
+            <div>
+              <div className="flex items-center gap-3">
+
+                <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
+                  <span className="text-2xl">
+                    🛡️
+                  </span>
+                </div>
+
+                <div>
+                  <h1 className="text-2xl font-bold tracking-tight">
+                    FraudShield
+                  </h1>
+
+                  <p className="text-sm text-slate-400">
+                    Real-time fraud intelligence
+                  </p>
+                </div>
+
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400" />
+                </span>
+
+                <span className="text-sm font-medium text-emerald-400">
+                  SYSTEM OPERATIONAL
+                </span>
+              </div>
+
+              {lastUpdated && (
+                <span className="hidden md:block text-xs text-slate-500">
+                  Updated{" "}
+                  {lastUpdated.toLocaleTimeString()}
+                </span>
+              )}
+
+            </div>
+
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-500">
+            <span>Kafka Streaming</span>
+            <span>•</span>
+            <span>ML Detection</span>
+            <span>•</span>
+            <span>SHAP Explainability</span>
+            <span>•</span>
+            <span>Live SSE Monitoring</span>
+          </div>
+
+        </div>
       </header>
 
-      <div className="grid md:grid-cols-4 gap-4">
-        <KpiCard label="Total Transactions" value={totalTx}/>
-        <KpiCard label="🚨 Total Alerts" value={totalAlerts}/>
-        <KpiCard label="Alert Rate" value={`${alertRate}%`}/>
-        <ThresholdControl api={API} threshold={threshold} onChange={setThreshold}/>
-      </div>
 
-      <div className="grid md:grid-cols-2 gap-4 mt-6">
-        <div className="bg-slate-900 rounded-2xl p-4 shadow">
-          <h2 className="font-semibold mb-2">Recent Transactions</h2>
-          <TxnChart data={latest}/>
-        </div>
-        <div className="bg-slate-900 rounded-2xl p-4 shadow">
-          <h2 className="font-semibold mb-2">🚨 Recent Alerts ({totalAlerts} total)</h2>
+      {/* ======================================================
+          MAIN
+      ====================================================== */}
+
+      <main className="max-w-[1600px] mx-auto px-6 py-6">
+
+        {/* ====================================================
+            KPI ROW
+        ==================================================== */}
+
+        <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+
+          <KpiCard
+            label="Transactions Processed"
+            value={totalTx.toLocaleString()}
+            subtitle="All monitored transactions"
+            icon="↗"
+          />
+
+          <KpiCard
+            label="Fraud Alerts"
+            value={totalAlerts.toLocaleString()}
+            subtitle={`${criticalAlerts} critical in recent window`}
+            icon="🚨"
+            accent="red"
+          />
+
+          <KpiCard
+            label="Alert Rate"
+            value={`${alertRate}%`}
+            subtitle={`${highAlerts} high-risk recent alerts`}
+            icon="%"
+            accent="amber"
+          />
+
+          <ThresholdControl
+            api={API}
+            threshold={threshold}
+            onChange={setThreshold}
+          />
+
+        </section>
+
+
+        {/* ====================================================
+            RISK MONITORING
+        ==================================================== */}
+
+        <section className="grid xl:grid-cols-[1.7fr_1fr] gap-4 mt-4">
+
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden">
+
+            <div className="px-5 py-4 border-b border-slate-800">
+
+              <div className="flex items-center justify-between">
+
+                <div>
+                  <h2 className="font-semibold text-lg">
+                    Risk Activity
+                  </h2>
+
+                  <p className="text-xs text-slate-500 mt-1">
+                    Fraud probability across recent transactions
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <span className="w-2 h-2 rounded-full bg-red-400" />
+                  Fraud probability
+                </div>
+
+              </div>
+
+            </div>
+
+            <div className="p-4">
+             <TxnChart
+               data={latest}
+               threshold={threshold}
+             />
+            </div>
+
+          </div>
+
+
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden">
+
+            <div className="px-5 py-4 border-b border-slate-800">
+
+              <h2 className="font-semibold text-lg">
+                Risk Distribution
+              </h2>
+
+              <p className="text-xs text-slate-500 mt-1">
+                Recent transactions by active threshold
+              </p>
+
+            </div>
+
+            <div className="p-4">
+              <FraudSummary
+                data={latest}
+                threshold={threshold}
+              />
+            </div>
+
+          </div>
+
+        </section>
+
+
+        {/* ====================================================
+            MODEL INTELLIGENCE
+        ==================================================== */}
+
+        <section className="mt-4">
+
+          <ModelDriftPanel
+            model={model}
+            drift={drift}
+          />
+
+        </section>
+
+
+        {/* ====================================================
+            ALERT QUEUE
+        ==================================================== */}
+
+        <section className="mt-4 bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden">
+
+          <div className="px-5 py-4 border-b border-slate-800">
+
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+
+              <div>
+                <div className="flex items-center gap-3">
+
+                  <h2 className="font-semibold text-lg">
+                    Live Alert Queue
+                  </h2>
+
+                  <span className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-semibold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                    LIVE
+                  </span>
+
+                </div>
+
+                <p className="text-xs text-slate-500 mt-1">
+                  Click an alert to open the investigation workspace
+                </p>
+              </div>
+
+              <div className="text-sm text-slate-400">
+                <span className="text-white font-semibold">
+                  {totalAlerts.toLocaleString()}
+                </span>{" "}
+                total alerts
+              </div>
+
+            </div>
+
+          </div>
+
           {totalAlerts > 0 ? (
-            <AlertsTable rows={alerts}/>
+            <AlertsTable rows={alerts} />
           ) : (
-            <div className="text-center text-slate-400 py-8">
-              No fraud alerts detected yet
+            <div className="py-16 text-center">
+
+              <div className="text-4xl mb-3">
+                ✓
+              </div>
+
+              <h3 className="font-semibold text-slate-300">
+                No fraud alerts detected
+              </h3>
+
+              <p className="text-sm text-slate-500 mt-1">
+                The monitoring pipeline is active.
+              </p>
+
             </div>
           )}
-        </div>
-      </div>
+
+        </section>
+
+
+        {/* ====================================================
+            FOOTER
+        ==================================================== */}
+
+        <footer className="py-8 text-center text-xs text-slate-600">
+          FraudShield • Real-time fraud detection and investigation platform
+        </footer>
+
+      </main>
+
     </div>
   );
 }
