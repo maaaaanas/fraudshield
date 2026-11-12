@@ -87,6 +87,8 @@ services:
       DRIFT_SINK: /app/data/drift.json
       THRESHOLD_FILE: /app/data/threshold.json
       SLACK_WEBHOOK_URL:
+      CLOUDFLARE_INGEST_URL: https://fraudshield-9zx.pages.dev/api/ingest
+      CLOUDFLARE_INGEST_TOKEN: ${CLOUDFLARE_INGEST_TOKEN}
       DB_URL: postgresql+psycopg2://fraud:fraudpw@postgres:5432/frauddb
       MODEL_PATH: /app/model.pkl
       MODEL_OUT: /app/model.pkl

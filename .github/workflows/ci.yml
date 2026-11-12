@@ -1,64 +1,52 @@
-name: CI
+name: FraudShield CI/CD
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - cloudflare-deployment
+      - main
+  pull_request:
+    branches:
+      - cloudflare-deployment
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  test:
+  backend:
+    name: Backend CI and ML Tests
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Lint imports (featurizer + threshold)
+      - name: Check featurizer imports
         working-directory: services/stream_processor
-        run: python -c "from featurizer import FEATURE_NAMES, to_features; print('featurizer OK, features:', len(FEATURE_NAMES))"
+        run: python -c "from featurizer import FEATURE_NAMES, to_features; print('featurizer OK:', len(FEATURE_NAMES))"
 
-      - name: Validate train.py parses correctly
-        working-directory: services/stream_processor
+      - name: Validate Python files
         run: |
-          python -c "
-          import ast
-          with open('train.py') as f:
-              ast.parse(f.read())
-          print('train.py syntax OK')
-          "
+          python -c "import ast; ast.parse(open('services/stream_processor/train.py').read()); print('train.py OK')"
+          python -c "import ast; ast.parse(open('services/stream_processor/app.py').read()); print('app.py OK')"
+          python -c "import ast; ast.parse(open('services/api/main.py').read()); print('API OK')"
 
-      - name: Validate app.py parses correctly
-        working-directory: services/stream_processor
+      - name: Check ML libraries
         run: |
-          python -c "
-          import ast
-          with open('app.py') as f:
-              ast.parse(f.read())
-          print('app.py syntax OK')
-          "
+          python -c "import lightgbm; print('LightGBM OK')"
+          python -c "import xgboost; print('XGBoost OK')"
+          python -c "import shap; print('SHAP OK')"
 
-      - name: Validate API parses correctly
-        working-directory: services/api
-        run: |
-          python -c "
-          import ast
-          with open('main.py') as f:
-              ast.parse(f.read())
-          print('api/main.py syntax OK')
-          "
-
-      - name: Check LightGBM importable
-        run: python -c "import lightgbm; print('LightGBM', lightgbm.__version__)"
-
-      - name: Check XGBoost importable
-        run: python -c "import xgboost; print('XGBoost', xgboost.__version__)"
-
-      - name: Check SHAP importable
-        run: python -c "import shap; print('SHAP', shap.__version__)"
-
-      - name: Ensemble smoke test (no real data needed)
+      - name: Ensemble smoke test
         run: |
           python -c "
           import numpy as np
@@ -69,13 +57,77 @@ jobs:
           X = np.random.randn(200, 29)
           y = np.random.randint(0, 2, 200)
 
-          xgb  = XGBClassifier(n_estimators=5, verbosity=0, random_state=42)
-          lgbm = LGBMClassifier(n_estimators=5, verbose=-1, random_state=42)
-          ens  = VotingClassifier([('xgb', xgb), ('lgbm', lgbm)], voting='soft')
-          ens.fit(X, y)
+          ens = VotingClassifier([
+              ('xgb', XGBClassifier(n_estimators=5, verbosity=0, random_state=42)),
+              ('lgbm', LGBMClassifier(n_estimators=5, verbose=-1, random_state=42))
+          ], voting='soft')
 
+          ens.fit(X, y)
           proba = ens.predict_proba(X[:5])[:, 1]
-          assert proba.shape == (5,), 'Wrong shape'
-          assert all(0 <= p <= 1 for p in proba), 'Probabilities out of range'
-          print('Ensemble smoke test PASSED  proba[:5]:', proba.round(3))
+          assert proba.shape == (5,)
+          assert np.all((proba >= 0) & (proba <= 1))
+          print('Ensemble smoke test PASSED')
           "
+
+  frontend:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: services/ui/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: services/ui
+        run: npm ci
+
+      - name: Build dashboard
+        working-directory: services/ui
+        run: npm run build
+
+  docker:
+    name: Docker Compose Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Docker Compose
+        run: docker compose config --quiet
+
+  deploy:
+    name: Deploy to Cloudflare Pages
+    runs-on: ubuntu-latest
+    needs: [backend, frontend, docker]
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/cloudflare-deployment'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install frontend dependencies
+        working-directory: services/ui
+        run: npm ci
+
+      - name: Build production dashboard
+        working-directory: services/ui
+        run: npm run build
+
+      - name: Deploy to Cloudflare Pages
+        working-directory: services/ui
+        run: npx wrangler pages deploy dist --project-name fraudshield --branch cloudflare-deployment
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify deployed API
+        run: curl --fail --retry 5 --retry-delay 5 --retry-connrefused https://fraudshield-9zx.pages.dev/api/health

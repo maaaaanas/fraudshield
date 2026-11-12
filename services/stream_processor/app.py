@@ -65,6 +65,42 @@ SLACK = os.getenv(
     ""
 ).strip()
 
+
+CLOUDFLARE_INGEST_URL = os.getenv("CLOUDFLARE_INGEST_URL", "").strip()
+CLOUDFLARE_INGEST_TOKEN = os.getenv("CLOUDFLARE_INGEST_TOKEN", "").strip()
+
+
+def cloudflare_safe(value):
+    if isinstance(value, dict):
+        return {str(k): cloudflare_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [cloudflare_safe(v) for v in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def send_to_cloudflare(transaction, alert=None):
+    if not CLOUDFLARE_INGEST_URL or not CLOUDFLARE_INGEST_TOKEN:
+        return
+
+    payload = {
+        "transactions": [cloudflare_safe(transaction)],
+        "alerts": [cloudflare_safe(alert)] if alert else []
+    }
+
+    try:
+        response = requests.post(
+            CLOUDFLARE_INGEST_URL,
+            json=payload,
+            headers={"Authorization": f"Bearer {CLOUDFLARE_INGEST_TOKEN}"},
+            timeout=3
+        )
+        response.raise_for_status()
+        logger.info("Cloudflare ingestion successful")
+    except Exception as error:
+        logger.warning("Cloudflare ingestion failed: %s", error)
+
 MODEL_PATH = os.getenv(
     "MODEL_PATH",
     "/app/model.pkl"
@@ -935,6 +971,40 @@ for message in consumer:
                         "Database insert failed: %s",
                         e
                     )
+
+        feature_data = {key: rec.get(key) for key in FEATURE_NAMES}
+
+        cloud_transaction = {
+            "ts": ts,
+            "prob": prob,
+            "transaction_id": transaction_id,
+            "customer_id": customer_id,
+            "merchant": merchant,
+            "location": location,
+            "device_id": device_id,
+            "scenario": rec.get("scenario"),
+            "amount": amount,
+            "is_alert": bool(is_alert),
+            "raw_data": feature_data
+        }
+
+        cloud_alert = None
+        if is_alert:
+            cloud_alert = {
+                "ts": ts,
+                "prob": prob,
+                "amount": amount,
+                "transaction_id": transaction_id,
+                "customer_id": customer_id,
+                "merchant": merchant,
+                "location": location,
+                "device_id": device_id,
+                "severity": severity,
+                "features": feature_data,
+                "shap": top
+            }
+
+        send_to_cloudflare(cloud_transaction, cloud_alert)
 
     except Exception as e:
 

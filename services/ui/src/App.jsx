@@ -8,11 +8,8 @@ import FraudSummary from "./components/FraudSummary.jsx";
 import ThresholdControl from "./components/ThresholdControl.jsx";
 import ModelDriftPanel from "./components/ModelDriftPanel.jsx";
 
-import { onSSE } from "./lib/sse.js";
 
-const API =
-  import.meta.env.VITE_API_BASE ||
-  "http://localhost:8000";
+const API = "/api";
 
 export default function App() {
   const [latest, setLatest] = useState([]);
@@ -68,20 +65,9 @@ export default function App() {
   useEffect(() => {
     loadAll();
 
-    const unsubTransactions = onSSE(
-      `${API}/stream/transactions`,
-      loadAll
-    );
+    const interval = window.setInterval(loadAll, 10000);
 
-    const unsubAlerts = onSSE(
-      `${API}/stream/alerts`,
-      loadAll
-    );
-
-    return () => {
-      unsubTransactions();
-      unsubAlerts();
-    };
+    return () => window.clearInterval(interval);
   }, []);
 
   const totalTx =
@@ -184,7 +170,7 @@ export default function App() {
             <span>•</span>
             <span>SHAP Explainability</span>
             <span>•</span>
-            <span>Live SSE Monitoring</span>
+            <span>Cloudflare D1 Monitoring</span>
           </div>
 
         </div>

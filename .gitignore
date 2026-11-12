@@ -72,3 +72,6 @@ data/model_meta.json
 .env
 .env.*
 !.env.example
+
+# Cloudflare Wrangler generated files
+.wrangler/
